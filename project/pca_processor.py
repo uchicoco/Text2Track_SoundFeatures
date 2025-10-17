@@ -76,8 +76,10 @@ class PCAProcessor:
         return feat_pca, cum_var, expl_var, pca
 
     def save_feat_pca(self, feat_pca, expl_var):
-        np.save(Path(self.dp.output_dir) / f"data/features_pca.npy", feat_pca)
-        pd.Series(expl_var).to_csv(Path(self.dp.output_dir) / "data/pca_explained_variance_ratio.csv", index=False)
+        data_dir = Path(self.dp.output_dir) / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        np.save(data_dir / f"features_pca.npy", feat_pca)
+        pd.Series(expl_var).to_csv(data_dir / "pca_explained_variance_ratio.csv", index=False)
         return None
     
     def plot_pca_with_tags(self, feat_pca, df, save_html=True, 
@@ -165,7 +167,9 @@ class PCAProcessor:
 
         # save interactive plot
         if save_html:
-            output_path = Path(self.dp.output_dir) / f"figures/pca_plot_{tag_column}.html"
+            figures_dir = Path(self.dp.output_dir) / "figures"
+            figures_dir.mkdir(parents=True, exist_ok=True)
+            output_path = figures_dir / f"pca_plot_{tag_column}.html"
             fig.write_html(output_path)
             print(f"Interactive plot saved: {output_path}")
 
@@ -195,7 +199,9 @@ class PCAProcessor:
         plt.tight_layout()
 
         # save variance plot
-        output_path = Path(self.dp.output_dir) / "figures/pca_explained_variance.png"
+        figures_dir = Path(self.dp.output_dir) / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
+        output_path = figures_dir / "pca_explained_variance.png"
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
         plt.show()
         print(f"Variance plot saved: {output_path}")
