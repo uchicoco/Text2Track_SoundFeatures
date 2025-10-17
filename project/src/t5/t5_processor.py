@@ -53,10 +53,10 @@ class T5Processor:
         """
         tag_list = []
 
-        if not pd.isna(row.genre):
-            tag_list.append(row.genre)
         if not pd.isna(row.mood):
             tag_list.append(row.mood)
+        if not pd.isna(row.genre):
+            tag_list.append(row.genre)
         if not pd.isna(row.instrument):
             tag_list.append(f'with {row.instrument}')
 
@@ -144,6 +144,13 @@ class T5Processor:
         """
         tokenizer = T5Tokenizer.from_pretrained(self.model_name)
         model = T5ForConditionalGeneration.from_pretrained(self.model_name)
+
+        # Add special tokens for semantic IDs (<000> to <255>)
+        special_tokens = [f"<{i:03d}>" for i in range(256)]
+        num_added = tokenizer.add_special_tokens({"additional_special_tokens": special_tokens})
+        if num_added > 0:
+            model.resize_token_embeddings(len(tokenizer))
+            print(f"Added {num_added} special tokens to vocabulary")
 
         # Create datasets
         if train_df is not None:
@@ -248,15 +255,30 @@ class T5Processor:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model.to(device)
 
+        # Data collator for dynamic padding
+        data_collator = DataCollatorForSeq2Seq(
+            tokenizer=tokenizer,
+            model=model,
+            padding=True
+        )
+
         # Batch processing
         batch_size = 16
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=data_collator
+        )
 
-        for batch in tqdm(test_loader):
-            prompts = batch['prompt']
-            true_targets = batch['target']
+        for batch_idx, batch in enumerate(tqdm(test_loader)):
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
+            
+            # Get true targets from original dataframe
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, len(test_df))
+            true_targets = test_df.iloc[start_idx:end_idx]['target'].tolist()
 
             # Beam search to generate top 10 candidates
             outputs = model.generate(
@@ -268,11 +290,20 @@ class T5Processor:
             )
 
             # Check if the correct target is in the generated candidates
-            for i in range(len(prompts)):
+            for i in range(len(true_targets)):
                 generated_targets = [tokenizer.decode(outputs[j], skip_special_tokens=True) 
                                      for j in range(i*10, (i+1)*10)]
+
                 if true_targets[i] in generated_targets:
                     hits += 1
+                
+                # Debug: Print first few examples
+                if batch_idx == 0 and i < 3:
+                    print(f"\nExample {i+1}:")
+                    print(f"  Prompt: {test_df.iloc[i]['prompt']}")
+                    print(f"  True target: {true_targets[i]}")
+                    print(f"  Generated (top 3): {generated_targets[:3]}")
+                    print(f"  Match: {true_targets[i] in generated_targets}")
 
         return hits / len(test_dataset)
 
@@ -286,7 +317,6 @@ class T5Processor:
             test_df (pd.DataFrame): Test dataset with "prompt" and "target" columns
         
         """
-        print("Generating UMAP visualization")
         if tokenizer is None:
             if model_path is not None:
                 tokenizer = T5Tokenizer.from_pretrained(model_path)
@@ -318,8 +348,9 @@ class T5Processor:
         # Calculate embeddings from the encoder
         for i in tqdm(range(len(test_dataset))):
             data = test_dataset[i]
-            input_ids = data["input_ids"].unsqueeze(0).to(device)
-            attention_mask = data["attention_mask"].unsqueeze(0).to(device)
+            # Convert lists to tensors and add batch dimension
+            input_ids = torch.tensor(data["input_ids"]).unsqueeze(0).to(device)
+            attention_mask = torch.tensor(data["attention_mask"]).unsqueeze(0).to(device)
 
             with torch.no_grad():
                 encoder_outputs = model.encoder(input_ids=input_ids, attention_mask=attention_mask)
