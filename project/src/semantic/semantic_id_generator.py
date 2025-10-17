@@ -1,5 +1,6 @@
 from collections import Counter
 from pathlib import Path
+import sys
 
 import joblib
 import numpy as np
@@ -8,9 +9,18 @@ from sklearn.decomposition import sparse_encode
 from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 
-from ..data.dataset_processor import DatasetProcessor
-from ..models.dictionary_learning_processor import DictionaryLearningProcessor
-from ..models.kmeans_clusterer import KMeansProcessor
+# Handle imports for both module usage and standalone execution
+try:
+    from ..data.dataset_processor import DatasetProcessor
+    from ..models.dictionary_learning_processor import DictionaryLearningProcessor
+    from ..models.kmeans_clusterer import KMeansProcessor
+except ImportError:
+    # When run as standalone script, add project root to path
+    project_root = Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    from src.data.dataset_processor import DatasetProcessor
+    from src.models.dictionary_learning_processor import DictionaryLearningProcessor
+    from src.models.kmeans_clusterer import KMeansProcessor
 
 class SemanticIDGenerator:
     def __init__(self):

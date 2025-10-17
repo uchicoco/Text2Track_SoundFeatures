@@ -1,11 +1,18 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
+from pathlib import Path
+import sys
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from .dataset_processor import DatasetProcessor
+try:
+    from .dataset_processor import DatasetProcessor
+except ImportError:
+    project_root = Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    from src.data.dataset_processor import DatasetProcessor
 
 # For parallel processing
 def _extract_row(args):
@@ -425,7 +432,9 @@ def main():
     
     tags_merged[["genre","mood","instrument"]] = tags_merged[["genre","mood","instrument"]].fillna("")
     
-    df = fe.build_features_dataframe(tags_merged, add_tonality=True)
+    df = fe.build_features_dataframe(tags_merged,
+                                     add_valley=True, add_timbre_dist=True, 
+                                     add_tonality=True, add_rhythm_struct=True)
         
     out_csv = Path(fe.dp.output_dir) / "data/features_tags.csv"
     out_csv.parent.mkdir(parents=True, exist_ok=True)

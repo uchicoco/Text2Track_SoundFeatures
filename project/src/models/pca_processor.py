@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,7 +8,14 @@ import plotly.express as px
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-from ..data.dataset_processor import DatasetProcessor
+# Handle imports for both module usage and standalone execution
+try:
+    from ..data.dataset_processor import DatasetProcessor
+except ImportError:
+    # When run as standalone script, add project root to path
+    project_root = Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    from src.data.dataset_processor import DatasetProcessor
 
 class PCAProcessor:
     def __init__(self, n_components=36, r_explained_var=0.95):
@@ -201,7 +209,11 @@ class PCAProcessor:
         print(f"Variance plot saved: {output_path}")
 
 def main():
-    from feature_extractor import FeatureExtractor
+    # Import FeatureExtractor for standalone execution
+    try:
+        from ..data.feature_extractor import FeatureExtractor
+    except ImportError:
+        from src.data.feature_extractor import FeatureExtractor
 
     fe = FeatureExtractor()
     dp = DatasetProcessor()
@@ -225,12 +237,12 @@ def main():
 
     pp = PCAProcessor()
     feat_matrix = pp.build_feature_matrix(df_two)
-    feat_pca_n, cum_var, expl_var, pca = pp.run_pca_components(feat_matrix)
-    feat_pca_r, cum_var, expl_var, pca = pp.run_pca_ratio(feat_matrix)
+    # feat_pca_n, cum_var, expl_var, pca = pp.run_pca_components(feat_matrix)
+    feat_pca_r, cum_var, expl_var, pca = pp.run_pca_ratio(feat_matrix, r_explained_var=0.90)
 
-    pp.plot_pca_with_tags(feat_pca_n, df_two)
+    pp.plot_pca_with_tags(feat_pca_r, df_two)
     pp.plot_explained_variance(expl_var, cum_var)
-    pp.save_feat_pca(feat_pca_n, expl_var)
+    pp.save_feat_pca(feat_pca_r, expl_var)
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,7 @@
 import multiprocessing
 import random
 from pathlib import Path
+import sys
 
 import numpy as np
 import pandas as pd
@@ -18,8 +19,16 @@ from transformers import (
     TrainingArguments
 )
 
-from ..data.dataset_processor import DatasetProcessor
-from .t5_utils import T5Dataset
+# Handle imports for both module usage and standalone execution
+try:
+    from ..data.dataset_processor import DatasetProcessor
+    from .t5_utils import T5Dataset
+except ImportError:
+    # When run as standalone script, add project root to path
+    project_root = Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    from src.data.dataset_processor import DatasetProcessor
+    from src.t5.t5_utils import T5Dataset
 
 class T5Processor:
     # Template strings for prompt generation
