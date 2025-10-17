@@ -1,21 +1,42 @@
 import multiprocessing
-import numpy as np
+import random
 from pathlib import Path
+
+import numpy as np
 import pandas as pd
 import plotly.express as px
-import random
-from sklearn.model_selection import train_test_split
 import torch
+import umap
+from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import T5ForConditionalGeneration, T5Tokenizer, Trainer, TrainingArguments
-import umap
+from transformers import (
+    DataCollatorForSeq2Seq,
+    T5ForConditionalGeneration,
+    T5Tokenizer,
+    Trainer,
+    TrainingArguments
+)
 
-from dataset_processor import DatasetProcessor
-from t5_utils import T5Dataset
+from ..data.dataset_processor import DatasetProcessor
+from .t5_utils import T5Dataset
 
 class T5Processor:
-    def  __init__(self, model_name="t5-base"):
+    # Template strings for prompt generation
+    PROMPT_TEMPLATES = (
+        "recommend a song with {tags}",
+        "find a track that is {tags}",
+        "suggest music with {tags}",
+        "what song has {tags}?",
+        "which track is {tags}?",
+        "play something {tags}",
+        "show me {tags} music",
+        "I want {tags} music",
+        "looking for {tags} songs",
+        "need {tags} tracks"
+    )
+    
+    def __init__(self, model_name="t5-base"):
         self.dp = DatasetProcessor()
         self.output_dir = self.dp.output_dir
         self.current_dir = self.dp.current_dir
@@ -30,45 +51,32 @@ class T5Processor:
         """
         Create a prompt from the given row of the DataFrame.
         """
-        templates = [
-            "recommend a song with {tags}",
-            "find a track that is {tags}",
-            "suggest music with {tags}",
-        
-            "what song has {tags}?",
-            "which track is {tags}?",
-
-            "play something {tags}",
-            "show me {tags} music",
-
-            "I want {tags} music",
-            "looking for {tags} songs",
-            "need {tags} tracks"
-        ]
-
         tag_list = []
 
-        if not pd.isna(row["genre"]):
-            tag_list.append(row["genre"])
-        if not pd.isna(row["mood"]):
-            tag_list.append(row["mood"])
-        if not pd.isna(row["instrument"]):
-            tag_list.append(f'with {row["instrument"]}')
+        if not pd.isna(row.genre):
+            tag_list.append(row.genre)
+        if not pd.isna(row.mood):
+            tag_list.append(row.mood)
+        if not pd.isna(row.instrument):
+            tag_list.append(f'with {row.instrument}')
 
-        if len(tag_list) == 1:
+        if len(tag_list) == 0:
+            return None  # No valid tags ??
+        elif len(tag_list) == 1:
             tags_text = tag_list[0]
         elif len(tag_list) == 2:
             connectors = [" and ", " ", ", "]
             tags_text = random.choice(connectors).join(tag_list)
         else:
+            # Handle 3 or more tags
             tags_text = f"{tag_list[0]} {tag_list[1]} {tag_list[2]}"
 
-        template = random.choice(templates)
+        template = random.choice(self.PROMPT_TEMPLATES)
         prompt = template.format(tags=tags_text)
         return prompt
 
     def prepare_data(self, df_ids=None, csv_path=None, upsample_threshold=16, max_replication=6):
-        # create prompt-target pairs
+        # Create prompt-target pairs
         print("Creating prompt-target pairs")
         if df_ids is not None:
             df = df_ids.copy()
@@ -77,29 +85,27 @@ class T5Processor:
         else:
             df = pd.read_csv(self.data_path)
 
-        # upsampling
+        # Upsampling
         target_counts = df['semantic_id'].value_counts()
-        threshold = upsample_threshold  # Threshold for upsampling
-        max_replication = max_replication  # Maximum replication factor
 
         all_data = []
-        for _, row in df.iterrows():
-            target = row['semantic_id']
+        for row in df.itertuples(index=False):
+            target = row.semantic_id
             target_count = target_counts[target]
 
-            if target_count < threshold:
-                # calculate replication factor
-                sample_count = min(max_replication, threshold//target_count+1)
-                
-                # generate different prompt variations for each replication
+            if target_count < upsample_threshold:
+                # Calculate replication factor
+                sample_count = min(max_replication, upsample_threshold // target_count + 1)
+
+                # Generate different prompt variations for each replication
                 for _ in range(sample_count):
-                    prompt = self.create_prompt(row)  # random template each time
+                    prompt = self.create_prompt(row)  # Random template each time
                     all_data.append({
                         'prompt': prompt,
                         'target': target
                     })
             else:
-                # data with >threshold occurrences: add once
+                # Data with >threshold occurrences: add once
                 prompt = self.create_prompt(row)
                 all_data.append({
                     'prompt': prompt,
@@ -107,15 +113,15 @@ class T5Processor:
                 })
         df_t5 = pd.DataFrame(all_data).dropna()
 
-        # split into train, val, test sets (80:10:10 %)
+        # Split into train, val, test sets (80:10:10 %)
         print("Splitting dataset")
         train_df, temp_df = train_test_split(df_t5, test_size=0.2, random_state=42)
         train_df = train_df.reset_index(drop=True)
         val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=42)
         val_df = val_df.reset_index(drop=True)
         test_df = test_df.reset_index(drop=True)
-        
-        # save to files
+
+        # Save to files
         data_dir = Path(self.output_dir) / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         train_df.to_csv(data_dir / "train.csv", index=False)
@@ -139,7 +145,7 @@ class T5Processor:
         tokenizer = T5Tokenizer.from_pretrained(self.model_name)
         model = T5ForConditionalGeneration.from_pretrained(self.model_name)
 
-        # create datasets
+        # Create datasets
         if train_df is not None:
             train_raw = train_df.copy()
         elif train_path is not None:
@@ -157,7 +163,13 @@ class T5Processor:
         train_data = T5Dataset(train_raw, tokenizer)
         val_data = T5Dataset(val_raw, tokenizer)
 
-        # parallel processing
+        data_collator = DataCollatorForSeq2Seq(
+            tokenizer=tokenizer,
+            model=model,
+            padding=True
+        )
+
+        # Parallel processing
         num_workers = min(4, multiprocessing.cpu_count())
 
         training_args = TrainingArguments(
@@ -182,13 +194,14 @@ class T5Processor:
             args=training_args,
             train_dataset=train_data,
             eval_dataset=val_data,
+            data_collator=data_collator,
         )
 
         print("Start training")
         trainer.train()
         print("Training finished. Saving the best model")
 
-        # create model directory if it doesn't exist
+        # Create model directory if it doesn't exist
         self.model_path.mkdir(parents=True, exist_ok=True)
         trainer.save_model(self.model_path)
         tokenizer.save_pretrained(self.model_path)
@@ -235,7 +248,7 @@ class T5Processor:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model.to(device)
 
-        # batch processing
+        # Batch processing
         batch_size = 16
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -245,7 +258,7 @@ class T5Processor:
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
 
-            # beam search to generate top 10 candidates
+            # Beam search to generate top 10 candidates
             outputs = model.generate(
                 input_ids,
                 attention_mask=attention_mask,
@@ -254,13 +267,12 @@ class T5Processor:
                 max_length=64
             )
 
-            # check if the correct target is in the generated candidates
+            # Check if the correct target is in the generated candidates
             for i in range(len(prompts)):
                 generated_targets = [tokenizer.decode(outputs[j], skip_special_tokens=True) 
                                      for j in range(i*10, (i+1)*10)]
                 if true_targets[i] in generated_targets:
                     hits += 1
-                    print(f"Hit found: {true_targets[i]} (prompt: {prompts[i]}, generated: {generated_targets})")
 
         return hits / len(test_dataset)
 
@@ -275,19 +287,17 @@ class T5Processor:
         
         """
         print("Generating UMAP visualization")
-        if tokenizer is not None:
-            tokenizer = tokenizer
-        elif model_path is not None:
-            tokenizer = T5Tokenizer.from_pretrained(model_path)
-        else:
-            tokenizer = T5Tokenizer.from_pretrained(self.model_path)
+        if tokenizer is None:
+            if model_path is not None:
+                tokenizer = T5Tokenizer.from_pretrained(model_path)
+            else:
+                tokenizer = T5Tokenizer.from_pretrained(self.model_path)
 
-        if model is not None:
-            model = model
-        elif model_path is not None:
-            model = T5ForConditionalGeneration.from_pretrained(model_path)
-        else:
-            model = T5ForConditionalGeneration.from_pretrained(self.model_path)
+        if model is None:
+            if model_path is not None:
+                model = T5ForConditionalGeneration.from_pretrained(model_path)
+            else:
+                model = T5ForConditionalGeneration.from_pretrained(self.model_path)
 
         if test_df is not None:
             test_df = test_df.copy()
@@ -305,7 +315,7 @@ class T5Processor:
         prompt_embeddings = []
         labels = []
 
-        # calculate embeddings from the encoder
+        # Calculate embeddings from the encoder
         for i in tqdm(range(len(test_dataset))):
             data = test_dataset[i]
             input_ids = data["input_ids"].unsqueeze(0).to(device)
@@ -318,7 +328,7 @@ class T5Processor:
             prompt_embeddings.append(embedding)
             labels.append(test_df.iloc[i]["target"].split(">")[1]) # color by the first token
 
-        # reduce to 3D
+        # Reduce to 3D
         reducer = umap.UMAP(n_components=3, n_neighbors=15, min_dist=0.1, random_state=42)
         embedding_3d = reducer.fit_transform(prompt_embeddings)
 
@@ -345,7 +355,7 @@ class T5Processor:
 
         fig.show()
 
-#!!! run this after generating csv file with semantic IDs !!!
+#!!! Run this after generating csv file with semantic IDs !!!
 def main():
     t5p = T5Processor(model_name="t5-small")
 

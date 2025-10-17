@@ -1,14 +1,15 @@
-from concurrent.futures import ProcessPoolExecutor, as_completed # for parallel processing (used generative AI)
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
+
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from dataset_processor import DatasetProcessor
+from .dataset_processor import DatasetProcessor
 
-# for parallel processing (used generative AI)
+# For parallel processing
 def _extract_row(args):
-    # args: (row_dict, kwargs)
+    # Args: (row_dict, kwargs)
     row, kwargs = args
     fe = FeatureExtractor()
     feat = fe.generate_dictionary(
@@ -21,13 +22,13 @@ def _extract_row(args):
         return feat
     return None
 
-### referred to Teodor's code!! Thank you very much!!###
+### Referenced to Teodor's code!! Thank you very much!!###
 class FeatureExtractor:
     def __init__(self):
         self.dp = DatasetProcessor()
-        self.chromatic_scale = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
-        self.fifths_map = ['c', 'g', 'd', 'a', 'e', 'b', 'f#', 'c#', 'g#', 'd#', 'a#', 'f']
-    # absolutely use
+        self.chromatic_scale = ('c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b')
+        self.fifths_map = ('c', 'g', 'd', 'a', 'e', 'b', 'f#', 'c#', 'g#', 'd#', 'a#', 'f')
+    # Absolutely use
     def record_json_path(self, json_path):
         """
         Args: json_path (str): path to acousticbrainz json file
@@ -35,8 +36,8 @@ class FeatureExtractor:
         """
         rec = {'json_full': json_path}
         return rec
-    
-    # default use (13 mfcc mean & std)
+
+    # Default use (13 mfcc mean & std)
     def extract_mfcc(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -55,7 +56,7 @@ class FeatureExtractor:
                     rec[f"mfcc_std_{i}"] = float(v)
         return rec
 
-    # alternatively use (40 melbands mean & std)
+    # Alternatively use (40 melbands mean & std)
     def extract_mel(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -73,8 +74,8 @@ class FeatureExtractor:
                 for i, v in enumerate(sd):
                     rec[f"mel_std_{i}"] = float(v)
         return rec
-    
-    # default use (spectral centroid)
+
+    # Default use (spectral centroid)
     def extract_spectral_centroid(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -85,8 +86,8 @@ class FeatureExtractor:
         if sc is not None:
             rec["spec_centroid_mean_0"] = float(sc)
         return rec
-    
-    # alternatively use (spectral energy 4 bands)
+
+    # Alternatively use (spectral energy 4 bands)
     def extract_spectral_energy(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -107,7 +108,7 @@ class FeatureExtractor:
             rec["spec_energy_3"] = float(mid_l)
         return rec
  
-    # default use (spectral contrast 6 bands)
+    # Default use (spectral contrast 6 bands)
     def extract_spectral_contrast(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -120,8 +121,8 @@ class FeatureExtractor:
             for i, v in enumerate(sc_coeffs):
                 rec[f"spec_contrast_mean_{i}"] = float(v)
         return rec
-    
-    # optional use (spectral valley 6 bands)
+
+    # Optional use (spectral valley 6 bands)
     def extract_spectral_valley(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -134,8 +135,8 @@ class FeatureExtractor:
             for i, v in enumerate(sc_valleys):
                 rec[f"spec_valley_mean_{i}"] = float(v)
         return rec
-    
-    # default use (HPCP 36 bins)
+
+    # Default use (HPCP 36 bands)
     def extract_hpcp(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -148,8 +149,8 @@ class FeatureExtractor:
             for i, v in enumerate(hpcp):
                 rec[f"hpcp_mean_{i}"] = float(v)
         return rec
-    
-    # default use (tempo in bpm)
+
+    # Default use (tempo in bpm)
     def extract_tempo_bpm(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -161,7 +162,7 @@ class FeatureExtractor:
             rec["tempo_bpm"] = float(bpm)
         return rec
 
-    # optional use (barkbands skewness and kurtosis)<-- distribution of timbre
+    # Optional use (barkbands skewness and kurtosis)<-- distribution of timbre
     def extract_barkbands(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -176,7 +177,7 @@ class FeatureExtractor:
             rec["barkbands_kurtosis"] = float(kurtosis)
         return rec
 
-    # optional use (tonality)<-- simplified tonnetz (more distinctive major or minor)
+    # Optional use (tonality)<-- simplified tonnetz (more distinctive major or minor)
     # We should investigate Tonal Interval Space??
     def extract_tonality(self, j, rec):
         """
@@ -189,27 +190,27 @@ class FeatureExtractor:
         strength = self.dp._get(j, "tonal.key_strength")
         if all(x is not None for x in (key, scale, strength)):
             key = key.lower()
-            if scale == 'minor': # find relative major
+            if scale == 'minor': # Find relative major
                 minor_index = self.chromatic_scale.index(key)
                 major_index = (minor_index + 3) % 12
                 key = self.chromatic_scale[major_index]
-            # calculate angle
+            # Calculate angle
             fifths_index = self.fifths_map.index(key)
             angle = (fifths_index * 2 * np.pi) / 12
 
-            # calculate coordinates
+            # Calculate coordinates
             x = np.cos(angle)
             y = np.sin(angle)
             z = 0.5 if scale == 'major' else -0.5
 
-            # calculate final vector
+            # Calculate final vector
             v = strength * np.array([x, y, z])
         rec["key_vector_x"] = v[0]
         rec["key_vector_y"] = v[1]
         rec["key_vector_z"] = v[2]
         return rec
     
-    # optional use (onset rate)<-- density of notes
+    # Optional use (onset rate)<-- density of notes
     def extract_onset_rate(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -221,7 +222,7 @@ class FeatureExtractor:
             rec["onset_rate"] = float(onset)
         return rec
     
-    # optional use (beat loudness)<-- dynamics of the piece
+    # Optional use (beat loudness)<-- dynamics of the piece
     def extract_beat_loudness(self, j, rec):
         """
         Args: j (Dict[str, Any]): loaded json data
@@ -332,7 +333,7 @@ class FeatureExtractor:
         )
         
         rows = []
-        # parallel processing
+        # Parallel processing
         with ProcessPoolExecutor() as executor:
             futures = [
                 executor.submit(_extract_row, (r, kwargs))
@@ -439,8 +440,8 @@ def main():
     df_two.to_csv(out_csv_two, index=False)
     print("Saved CSV in", out_csv_two)
 
-    pd.set_option("display.max_columns", None)
-    print(df_two.head())
+    with pd.option_context("display.max_columns", None):
+        print(df_two.head())
 
 if __name__ == "__main__":
     main()

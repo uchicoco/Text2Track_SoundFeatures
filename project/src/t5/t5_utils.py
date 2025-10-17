@@ -17,40 +17,31 @@ class T5Dataset(Dataset):
                 index (int): Index
             Returns:
                 dict: {
-                    'input_ids': torch.Tensor,
-                    'attention_mask': torch.Tensor,
-                    'labels': torch.Tensor
+                    'input_ids': list,
+                    'attention_mask': list,
+                    'labels': list
                 }
         """
         row = self.df.iloc[index]
         prompt = str(row['prompt'])
         target = str(row['target'])
 
-        # tokenize prompt
+        # Tokenize prompt (no padding here - DataCollator will handle it)
         source_encoding = self.tokenizer(
             prompt,
             max_length=self.max_length,
-            padding='max_length',
             truncation=True,
-            return_tensors="pt"
         )
 
-        # tokenize target
+        # Tokenize target (no padding here - DataCollator will handle it)
         target_encoding = self.tokenizer(
             target,
             max_length=self.max_length,
-            padding='max_length',
             truncation=True,
-            return_tensors="pt"
         )
 
-        labels = target_encoding['input_ids']
-        labels[labels == self.tokenizer.pad_token_id] = -100
-
         return {
-            "input_ids": source_encoding["input_ids"].squeeze(),
-            "attention_mask": source_encoding["attention_mask"].squeeze(),
-            "labels": labels.squeeze(),
-            "prompt": prompt,
-            "target": target
+            "input_ids": source_encoding["input_ids"],
+            "attention_mask": source_encoding["attention_mask"],
+            "labels": target_encoding["input_ids"],
         }

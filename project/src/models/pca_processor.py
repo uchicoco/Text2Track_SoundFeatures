@@ -1,13 +1,13 @@
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-import matplotlib.pyplot as plt
 import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from dataset_processor import DatasetProcessor
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+from ..data.dataset_processor import DatasetProcessor
 
 class PCAProcessor:
     def __init__(self, n_components=36, r_explained_var=0.95):
@@ -24,7 +24,7 @@ class PCAProcessor:
         """
         feat_cols = [c for c in df.columns if c not in self.exclude_cols]
         feat_matrix = df[feat_cols].to_numpy(dtype=float)
-        # standardize
+        # Standardize
         feat_matrix = self.scaler.fit_transform(feat_matrix)
         print(f"feature matrix shape: {feat_matrix.shape}")
         return feat_matrix
@@ -78,7 +78,7 @@ class PCAProcessor:
     def save_feat_pca(self, feat_pca, expl_var):
         data_dir = Path(self.dp.output_dir) / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
-        np.save(data_dir / f"features_pca.npy", feat_pca)
+        np.save(data_dir / "features_pca.npy", feat_pca)
         pd.Series(expl_var).to_csv(data_dir / "pca_explained_variance_ratio.csv", index=False)
         return None
     
@@ -94,7 +94,7 @@ class PCAProcessor:
                sample_size (int): number of samples to plot (for performance)
                figsize (tuple): figure size for static plots
         """
-        # create 3D plots
+        # Create 3D plots
         for tag_column in ['genre', 'mood', 'instrument']:
             if tag_column not in df.columns:
                 continue
@@ -107,30 +107,24 @@ class PCAProcessor:
         """
         Create a single 3D plot for the specified tag column
         """
-        df_plot = df.copy()
-        feat_pca_plot = feat_pca.copy()
-        
-        # clean tag data
-        df_plot[tag_column] = df_plot[tag_column].fillna('') # fill NaN with empty string
-        valid_mask = df_plot[tag_column] != ''
-        df_plot = df_plot[valid_mask].reset_index(drop=True)  # remove empty tags
-        feat_pca_plot = feat_pca_plot[valid_mask]
+        # Clean tag data - fill NaN with empty string
+        tag_filled = df[tag_column].fillna('')
+        valid_mask = tag_filled != ''
+        df_plot = df[valid_mask].reset_index(drop=True)
+        feat_pca_plot = feat_pca[valid_mask]
 
-        top_tags = df_plot[tag_column].value_counts().head(n_tags).index.tolist() # get top tags
+        top_tags = df_plot[tag_column].value_counts().head(n_tags).index.tolist() # Get top tags
         top_mask = df_plot[tag_column].isin(top_tags)
-        df_plot = df_plot[top_mask].reset_index(drop=True) # keep only top tags
+        df_plot = df_plot[top_mask].reset_index(drop=True) # Keep only top tags
         feat_pca_plot = feat_pca_plot[top_mask]
 
-        # sample data if too large
+        # Sample data if too large
         if len(feat_pca_plot) > sample_size:
             idx = np.random.choice(len(feat_pca_plot), sample_size, replace=False)
             feat_pca_plot = feat_pca_plot[idx]
-            df_plot = df_plot.iloc[idx].copy().reset_index(drop=True)
-        else:
-            feat_pca_plot = feat_pca_plot.copy()
-            df_plot = df_plot.copy().reset_index(drop=True)
+            df_plot = df_plot.iloc[idx].reset_index(drop=True)
 
-        # create interactive 3D plot with plotly
+        # Create interactive 3D plot with plotly
         if feat_pca_plot.shape[1] >= 3:
             fig = px.scatter_3d(
                 x=feat_pca_plot[:, 0], 
@@ -165,7 +159,7 @@ class PCAProcessor:
 
         fig.show()
 
-        # save interactive plot
+        # Save interactive plot
         if save_html:
             figures_dir = Path(self.dp.output_dir) / "figures"
             figures_dir.mkdir(parents=True, exist_ok=True)
@@ -179,14 +173,14 @@ class PCAProcessor:
         """
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
         
-        # individual explained variance
+        # Individual explained variance
         ax1.bar(range(1, len(expl_var) + 1), expl_var)
         ax1.set_xlabel('Principal Component')
         ax1.set_ylabel('Explained Variance Ratio')
         ax1.set_title('Explained Variance by Component')
         ax1.grid(True, alpha=0.3)
 
-        # cumulative explained variance
+        # Cumulative explained variance
         ax2.plot(range(1, len(cum_var) + 1), cum_var, 'bo-')
         ax2.axhline(y=0.95, color='r', linestyle='--', label='95%')
         ax2.axhline(y=0.90, color='orange', linestyle='--', label='90%')
@@ -198,7 +192,7 @@ class PCAProcessor:
         
         plt.tight_layout()
 
-        # save variance plot
+        # Save variance plot
         figures_dir = Path(self.dp.output_dir) / "figures"
         figures_dir.mkdir(parents=True, exist_ok=True)
         output_path = figures_dir / "pca_explained_variance.png"

@@ -1,7 +1,8 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
-from pathlib import Path
 
 class KMeansProcessor:
     def __init__(self, n_tokens=2, n_clusters=128, max_iter=200, n_init=16,
@@ -26,13 +27,13 @@ class KMeansProcessor:
                 n_tokens (int): number of tokens used
                 n_clusters (int): number of clusters used
         """
-        # set parameters
+        # Set parameters
         if n_tokens is None: n_tokens = self.n_tokens
         if n_clusters is None: n_clusters = self.n_clusters 
         if max_iter is None: max_iter = self.max_iter
         if n_init is None: n_init = self.n_init
 
-        codebooks = [] # save k-means models for each token
+        codebooks = [] # Save k-means models for each token
         codes = np.zeros((feat_pca.shape[0], n_tokens), dtype=np.int32) # [n_samples, n_tokens]
 
         residual = feat_pca.copy()
@@ -45,7 +46,7 @@ class KMeansProcessor:
             codebooks.append(kmeans)
             codes[:, l] = labels.astype(np.int32)
 
-            # update residuals
+            # Update residuals
             residual -= assigned_centers
         return codebooks, codes, n_tokens, n_clusters
     
@@ -58,20 +59,20 @@ def main():
     
     dp = DatasetProcessor()
     
-    # load PCA features if available
+    # Load PCA features if available
     pca_path = Path(dp.output_dir) / "data/features_pca.npy"
     if pca_path.exists():
         print("Loading PCA features from file")
         feat_pca = np.load(pca_path)
     else:
         print("PCA features not found, generating from scratch")
-        
-        # load dataset
+
+        # Load dataset
         csv_path = Path(dp.output_dir) / "data/features_2tags.csv"
         if csv_path.exists():
             df_two = pd.read_csv(csv_path)
         else:
-            # build dataset from scratch
+            # Build dataset from scratch
             fe = FeatureExtractor()
             mood_df = dp.load_tag_tsv("autotagging_moodtheme.tsv", "mood")
             genre_df = dp.load_tag_tsv("autotagging_genre.tsv", "genre")
@@ -83,44 +84,44 @@ def main():
             
             df = fe.build_features_dataframe(tags_merged)
             df_two = fe.filter_min2tags(df)
-        
-        # run PCA
+
+        # Run PCA
         pp = PCAProcessor()
         feat_matrix = pp.build_feature_matrix(df_two)
         feat_pca, cum_var, expl_var, pca = pp.run_pca_components(feat_matrix)
         pp.save_feat_pca(feat_pca, expl_var)
 
-    # run RVQ clustering
+    # Run RVQ clustering
     kmp = KMeansProcessor()
     codebooks, codes, n_tokens, n_clusters = kmp.run_rvq(
         feat_pca, n_tokens=2, n_clusters=32, max_iter=200, n_init=16
     )
     
-    # display results
+    # Display results
     print(f"\nRVQ Results:")
     print(f"Feature matrix shape: {feat_pca.shape}")
     print(f"Generated codes shape: {codes.shape}")
     print(f"Number of codebooks: {len(codebooks)}")
-    
-    # check code distribution
+
+    # Check code distribution
     for i in range(n_tokens):
         unique_codes = np.unique(codes[:, i])
         print(f"Token {i}: {len(unique_codes)} unique codes (expected: {n_clusters})")
-    
-    # generate semantic IDs for example
+
+    # Generate semantic IDs for example
     semantic_ids = []
     for row in codes:
         semantic_id = "".join([f"<{int(c):03d}>" for c in row])
         semantic_ids.append(semantic_id)
-    
-    # check semantic ID distribution
+
+    # Check semantic ID distribution
     unique_semantic_ids = len(set(semantic_ids))
     print(f"\nSemantic ID Statistics:")
     print(f"Total tracks: {len(semantic_ids)}")
     print(f"Unique semantic IDs: {unique_semantic_ids}")
     print(f"ID diversity: {unique_semantic_ids / len(semantic_ids):.3f}")
-    
-    # show sample IDs
+
+    # Show sample IDs
     print(f"\nSample semantic IDs:")
     for i in range(min(10, len(semantic_ids))):
         print(f"  {semantic_ids[i]}")

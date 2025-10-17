@@ -1,22 +1,22 @@
-import numpy as np
-import os
 from pathlib import Path
+
+import numpy as np
 import pandas as pd
 
-### referred to Teodor's code!! Thank you very much!!###
+### Referenced to Teodor's code!! Thank you very much!!###
 class DatasetProcessor:
     def __init__(self):
         np.random.seed(42)
 
-        # paths
-        self.current_dir = Path(__file__).resolve().parent
+        # Paths
+        self.current_dir = Path(__file__).resolve().parent.parent.parent
         self.parent_dir = self.current_dir.parent
 
         self.output_dir = self.current_dir / 'outputs'
         self.acb_dir = self.current_dir / 'data/acousticbrainz_raw30s'
         self.jamendo_dir = self.parent_dir / 'mtg-jamendo-dataset' / 'data'
 
-        # make outputs dir
+        # Make outputs dir
         self.output_dir.mkdir(exist_ok=True, parents=True)
 
     def get_paths(self):
@@ -28,11 +28,11 @@ class DatasetProcessor:
               category (str): 'mood', 'genre' or 'instrument'
         Returns: pd.DataFrame: with columns ['track_id', 'path', category]
         """
-        # load tsv and make column names lowercase
+        # Load tsv and make column names lowercase
         df = pd.read_csv(self.jamendo_dir / tsv_name, sep='\t', engine='python', on_bad_lines='skip')
         df.columns = [c.lower() for c in df.columns]
 
-        # grab the single tag
+        # Grab the single tag
         prefix = "mood/theme---" if category == "mood" else f"{category}---"
         def grab_tag(s):
             if not isinstance(s, str): return ""
@@ -68,7 +68,7 @@ class DatasetProcessor:
             cur = cur[k]
         return cur
     
-# for testing
+# For testing
 def main():
     dp = DatasetProcessor()
     print("Current dir:", dp.current_dir)

@@ -1,28 +1,40 @@
 from collections import Counter
+from pathlib import Path
+
+import joblib
 import numpy as np
 import pandas as pd
-from pathlib import Path
-import joblib
-from tqdm import tqdm
 from sklearn.decomposition import sparse_encode
 from sklearn.neighbors import NearestNeighbors
+from tqdm import tqdm
 
-from kmeans_clusterer import KMeansProcessor
-from dataset_processor import DatasetProcessor
-from dictionary_learning_processor import DictionaryLearningProcessor
+from ..data.dataset_processor import DatasetProcessor
+from ..models.dictionary_learning_processor import DictionaryLearningProcessor
+from ..models.kmeans_clusterer import KMeansProcessor
 
 class SemanticIDGenerator:
     def __init__(self):
         self.dp = DatasetProcessor()
         self.kmp = KMeansProcessor()
         self.dlp = DictionaryLearningProcessor()
+    
+    @staticmethod
+    def _codes_to_semantic_ids(codes):
+        """Convert code matrix to semantic ID strings
         
+        Args:
+            codes (np.ndarray): Code matrix of shape (n_samples, n_tokens)
+        
+        Returns:
+            list: List of semantic ID strings in format '<000><001>...'
+        """
+        return ["".join(f"<{int(c):03d}>" for c in row) for row in codes]
     
     def assign_sem_ids_kmeans(self, feat_pca, n_tokens, n_clusters, max_iter, n_init):
         """K-means RVQ semantic ID assignment"""
         kmp = KMeansProcessor()
         codebooks, codes, _, _ = kmp.run_rvq(feat_pca, n_tokens, n_clusters, max_iter, n_init)
-        semantic_ids = ["".join([f"<{int(c):03d}>" for c in row]) for row in codes]
+        semantic_ids = self._codes_to_semantic_ids(codes)
         return semantic_ids, codebooks, codes
 
     def assign_sem_ids_kmean_manual(self, feat_pca, n_tokens=None, n_clusters=None, max_iter=None, n_init=None):
@@ -34,19 +46,19 @@ class SemanticIDGenerator:
 
         print(f"Generating semantic IDs with manual config: L={n_tokens}, K={n_clusters}, n_init={n_init}")
         
-        # generate semantic IDs
+        # Generate semantic IDs
         semantic_ids, codebooks, codes = self.assign_sem_ids_kmeans(
             feat_pca, n_tokens, n_clusters, max_iter, n_init
         )
-        
-        # evaluate quality
+
+        # Evaluate quality
         vc = pd.Series(semantic_ids).value_counts()
         print(f"Manual config results:")
         print(f"  Unique IDs: {vc.size}")
         print(f"  Mean per ID: {vc.mean():.2f}")
         print(f"  Singleton %: {(vc == 1).mean():.1%}")
-        
-        # save config
+
+        # Save config
         data_dir = Path(self.dp.output_dir) / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         for l, cb in enumerate(codebooks):
@@ -75,8 +87,8 @@ class SemanticIDGenerator:
             raise FileNotFoundError(f"No saved config found")
         
         print(f"Loaded saved config: L={len(codebooks)}")
-        
-        # apply
+
+        # Apply
         codes = np.zeros((feat_pca.shape[0], len(codebooks)), dtype=np.int32)
         residual = feat_pca.copy()
         
@@ -85,16 +97,16 @@ class SemanticIDGenerator:
             centers = km.cluster_centers_[labels]
             residual = residual - centers
             codes[:, l] = labels.astype(np.int32)
-        
-        # generate semantic IDs
-        semantic_ids = ["".join([f"<{int(c):03d}>" for c in row]) for row in codes]
+
+        # Generate semantic IDs
+        semantic_ids = self._codes_to_semantic_ids(codes)
         return semantic_ids
     
     def search_best_kmean(self, feat_pca,
-                                  n_tokens_list=[2,3],
-                                  n_clusters_list=[32,64,128],
+                                  n_tokens_list=None,
+                                  n_clusters_list=None,
                                   max_iter=200,
-                                  n_init_values=[16],
+                                  n_init_values=None,
                                   ideal_num_per_id=3):
         """Grid search with evaluation and save best config
             Args: feat_pca - PCA reduced feature matrix
@@ -105,6 +117,13 @@ class SemanticIDGenerator:
                     ideal_num_per_id - (assumed) Ideal average number of tracks per semantic ID
             Returns: best_semantic_ids - Semantic IDs from best config"""
         
+        if n_tokens_list is None:
+            n_tokens_list = [2, 3]
+        if n_clusters_list is None:
+            n_clusters_list = [32, 64, 128]
+        if n_init_values is None:
+            n_init_values = [16]
+        
         results = []
         all_configs = []
 
@@ -112,13 +131,13 @@ class SemanticIDGenerator:
             for L in n_tokens_list:
                 for n_init in n_init_values:
                     print(f"Testing L={L}, K={K}, n_init={n_init}")
-                    
-                    # generate semantic IDs
+
+                    # Generate semantic IDs
                     semantic_ids, codebooks, codes = self.assign_sem_ids_kmeans(
                         feat_pca, n_tokens=L, n_clusters=K, max_iter=max_iter, n_init=n_init
                     )
-                    
-                    # evaluate quality
+
+                    # Evaluate quality
                     vc = pd.Series(semantic_ids).value_counts()
                     unique_ids = int(vc.size)
                     mean_per_id = float(vc.mean())
@@ -135,13 +154,13 @@ class SemanticIDGenerator:
                     }
                     results.append(result)
                     all_configs.append((semantic_ids, codebooks, codes, result))
-        
-        # print results
+
+        # Print results
         df_results = pd.DataFrame(results)
         print("\nGrid Search Results:")
         print(df_results.to_string(index=False))
-        
-        # select best (high recall, low singleton%, balanced mean_per_id)
+
+        # Select best (high recall, low singleton%, balanced mean_per_id)
         best_idx = df_results.assign(
             score=df_results['Recall'] - df_results['SingletonPct'] - abs(df_results['MeanPerID'] - ideal_num_per_id) * 0.1
         )['score'].idxmax()
@@ -150,8 +169,8 @@ class SemanticIDGenerator:
         best_semantic_ids, best_codebooks, best_codes, best_stats = best_config
         
         print(f"\nBest config: L={best_stats['L']}, K={best_stats['K']}")
-        
-        # save best config
+
+        # Save best config
         data_dir = Path(self.dp.output_dir) / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         for l, cb in enumerate(best_codebooks):
@@ -165,7 +184,7 @@ class SemanticIDGenerator:
         dictionary, codes, _, _ = self.dlp.run_sparse_coding_minibatch(
             feat_pca, n_nonzero_coefs, n_dict_components, max_iter, batch_size
         )
-        semantic_ids = ["".join([f"<{int(c):03d}>" for c in row]) for row in codes]
+        semantic_ids = self._codes_to_semantic_ids(codes)
         return semantic_ids, dictionary, codes
     
     def assign_sem_ids_dl_manual(self, feat_pca, n_nonzero_coefs=None, n_dict_components=None, max_iter=None, batch_size=None):
@@ -176,17 +195,17 @@ class SemanticIDGenerator:
         if batch_size is None: batch_size = self.dlp.batch_size
         
         print(f"Generating semantic IDs with manual DL config: C={n_nonzero_coefs}, D={n_dict_components}, batch_size={batch_size}")
-        
-        # generate semantic IDs
+
+        # Generate semantic IDs
         semantic_ids, dictionary, codes = self.assign_sem_ids_dl(
             feat_pca, n_nonzero_coefs, n_dict_components, max_iter, batch_size
         )
 
-        # evaluate quality
+        # Evaluate quality
         vc = pd.Series(semantic_ids).value_counts()
         print(f"Manual DL config results: Unique IDs: {vc.size}, Mean per ID: {vc.mean():.2f}, Singleton %: {(vc == 1).mean():.1%}")
 
-        # save config
+        # Save config
         data_dir = Path(self.dp.output_dir) / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         joblib.dump(dictionary, data_dir / "best_dl_dictionary.joblib")
@@ -200,7 +219,7 @@ class SemanticIDGenerator:
     def assign_sem_ids_dl_load(self, feat_pca):
         """Load saved DL dictionary and apply to new data"""
 
-        # load saved config
+        # Load saved config
         dict_path = Path(self.dp.output_dir) / "data/best_dl_dictionary.joblib"
         config_path = Path(self.dp.output_dir) / "data/best_dl_config.joblib"
         if not dict_path.exists() or not config_path.exists():
@@ -212,8 +231,8 @@ class SemanticIDGenerator:
         
         print("Applying loaded dictionary")
         sparse_codes = sparse_encode(feat_pca, dictionary, algorithm='omp', n_nonzero_coefs=n_nonzero_coefs, n_jobs=-1)
-        
-        # apply
+
+        # Apply
         codes = np.zeros((feat_pca.shape[0], n_nonzero_coefs), dtype=np.int32)
         for i in tqdm(range(feat_pca.shape[0]), desc="Generating IDs from loaded dict"):
             coef = sparse_codes[i, :]
@@ -223,14 +242,14 @@ class SemanticIDGenerator:
             for k, idx in enumerate(top_indices):
                 sign = np.sign(coef[idx])
                 codes[i, k] = idx if sign >= 0 else idx + n_dict_components
-        
-        # generate semantic IDs
-        semantic_ids = ["".join([f"<{int(c):03d}>" for c in row]) for row in codes]
+
+        # Generate semantic IDs
+        semantic_ids = self._codes_to_semantic_ids(codes)
         return semantic_ids
     
     def search_best_dl(self, feat_pca,
-                       n_nonzero_coefs_list=[2, 3], n_dict_components_list=[32, 64, 128],
-                       batch_size_list=[256], max_iter=200, ideal_num_per_id=3):
+                       n_nonzero_coefs_list=None, n_dict_components_list=None,
+                       batch_size_list=None, max_iter=200, ideal_num_per_id=3):
         """Grid search with evaluation and save best config
             Args: feat_pca - PCA reduced feature matrix
                     n_nonzero_coefs_list - List of token counts to evaluate
@@ -240,6 +259,13 @@ class SemanticIDGenerator:
                     ideal_num_per_id - (assumed) Ideal average number of tracks per semantic ID
             Returns: best_semantic_ids - Semantic IDs from best config"""
         
+        if n_nonzero_coefs_list is None:
+            n_nonzero_coefs_list = [2, 3]
+        if n_dict_components_list is None:
+            n_dict_components_list = [32, 64, 128]
+        if batch_size_list is None:
+            batch_size_list = [256]
+        
         results = []
         all_configs = []
 
@@ -248,12 +274,12 @@ class SemanticIDGenerator:
                 for B in batch_size_list:
                     print(f"Testing DL: C={C}, D={D}, batch_size={B}")
 
-                    # generate semantic IDs
+                    # Generate semantic IDs
                     semantic_ids, dictionary, codes = self.assign_sem_ids_dl(
                         feat_pca, n_nonzero_coefs=C, n_dict_components=D, max_iter=max_iter, batch_size=B
                     )
 
-                    # evaluate quality
+                    # Evaluate quality
                     vc = pd.Series(semantic_ids).value_counts()
                     unique_ids = int(vc.size)
                     mean_per_id = float(vc.mean())
@@ -267,13 +293,13 @@ class SemanticIDGenerator:
                               'MeanPerID': mean_per_id, 'SingletonPct': singleton_pct, 'Recall': recall}
                     results.append(result)
                     all_configs.append((semantic_ids, dictionary, codes, result))
-        
-        # print results
+
+        # Print results
         df_results = pd.DataFrame(results)
         print("\nGrid Search Results (Dictionary Learning):")
         print(df_results.to_string(index=False))
-        
-        # select best (high recall, low singleton%, balanced mean_per_id)
+
+        # Select best (high recall, low singleton%, balanced mean_per_id)
         best_idx = df_results.assign(
             score=df_results['Recall'] - df_results['SingletonPct'] - abs(df_results['MeanPerID'] - ideal_num_per_id) * 0.1
         )['score'].idxmax()
@@ -293,7 +319,7 @@ class SemanticIDGenerator:
     
     def _evaluate_recall(self, codes, Xn, L, n_queries=50, k_eval=10):
         """Recall evaluation"""
-        # build inverted index
+        # Build inverted index
         inv = [{t: np.where(codes[:, l] == t)[0] for t in np.unique(codes[:, l])} for l in range(L)]
         
         rng = np.random.default_rng(42)
@@ -301,7 +327,7 @@ class SemanticIDGenerator:
         
         recalls = []
         for q in qs:
-            # ground truth KNN
+            # Ground truth KNN
             sims = Xn @ Xn[q]; sims[q] = -np.inf
             gt_idx = np.argpartition(-sims, k_eval)[:k_eval]
             gt = set(gt_idx)
@@ -424,44 +450,44 @@ class SemanticIDGenerator:
 def main():
     sig = SemanticIDGenerator()
     
-    # load PCA features
+    # Load PCA features
     pca_path = Path(sig.dp.output_dir) / "data/features_pca.npy"
     feat_pca = np.load(pca_path)
 
-    # load dataset
+    # Load dataset
     csv_path = Path(sig.dp.output_dir) / "data/features_2tags.csv"
     df = pd.read_csv(csv_path)
     
     # k-means
-    # grid search and get best semantic IDs
+    # Grid search and get best semantic IDs
     print("===== K-means =====")
-    ### we can change the parameters of grid search
-    ### and we have to keep them
+    ### We can change the parameters of grid search
+    ### And we have to keep them
     best_semantic_ids = sig.search_best_kmean(feat_pca)
     
-    # integrate with dataset
+    # Integrate with dataset
     df_final = sig.integrate_with_dataset(df, best_semantic_ids)
 
-    # save final result
+    # Save final result
     df_final.to_csv(Path(sig.dp.output_dir) / "data/dataset_with_semantic_ids.csv", index=False)
     print(f"\nSaved final dataset with semantic IDs")
     print(df_final.head())
 
 
 
-    # dictionary learning
+    # Dictionary learning
     print("\n===== Dictionary Learning =====")
     best_semantic_ids = sig.search_best_dl(feat_pca)
 
-    # integrate with dataset
+    # Integrate with dataset
     df_final = sig.integrate_with_dataset(df, best_semantic_ids)
 
-    # save final result
+    # Save final result
     df_final.to_csv(Path(sig.dp.output_dir) / "data/dataset_with_semantic_ids.csv", index=False)
     print(f"\nSaved final dataset with semantic IDs")
     print(df_final.head())
 
-    # print statistics of semantic IDs
+    # Print statistics of semantic IDs
     sig.print_stats(best_semantic_ids)
 
     sig.evaluate_id_quality()
