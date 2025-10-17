@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+project/data/
+project/logs/
+project/models/
+project/outputs
+
+project/just_test.py
+
+mtg-jamendo-dataset/
