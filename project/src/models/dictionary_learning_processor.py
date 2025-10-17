@@ -144,9 +144,9 @@ def main():
     from pathlib import Path
     import pandas as pd
 
-    from dataset_processor import DatasetProcessor
-    from pca_processor import PCAProcessor
-    from feature_extractor import FeatureExtractor
+    from src.data.dataset_processor import DatasetProcessor
+    from src.models.pca_processor import PCAProcessor
+    from src.data.feature_extractor import FeatureExtractor
 
     dp = DatasetProcessor()
 

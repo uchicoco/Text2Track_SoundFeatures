@@ -209,11 +209,7 @@ class PCAProcessor:
         print(f"Variance plot saved: {output_path}")
 
 def main():
-    # Import FeatureExtractor for standalone execution
-    try:
-        from ..data.feature_extractor import FeatureExtractor
-    except ImportError:
-        from src.data.feature_extractor import FeatureExtractor
+    from src.data.feature_extractor import FeatureExtractor
 
     fe = FeatureExtractor()
     dp = DatasetProcessor()
