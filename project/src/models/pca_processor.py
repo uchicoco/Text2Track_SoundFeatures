@@ -234,7 +234,7 @@ def main():
     pp = PCAProcessor()
     feat_matrix = pp.build_feature_matrix(df_two)
     # feat_pca_n, cum_var, expl_var, pca = pp.run_pca_components(feat_matrix)
-    feat_pca_r, cum_var, expl_var, pca = pp.run_pca_ratio(feat_matrix, r_explained_var=0.90)
+    feat_pca_r, cum_var, expl_var, pca = pp.run_pca_ratio(feat_matrix, r_explained_var=0.80)
 
     pp.plot_pca_with_tags(feat_pca_r, df_two)
     pp.plot_explained_variance(expl_var, cum_var)

@@ -1,8 +1,13 @@
 from pathlib import Path
-
+import sys
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
+
+# Add project root to sys.path for standalone execution
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 class KMeansProcessor:
     def __init__(self, n_tokens=2, n_clusters=128, max_iter=200, n_init=16,
@@ -94,7 +99,7 @@ def main():
     # Run RVQ clustering
     kmp = KMeansProcessor()
     codebooks, codes, n_tokens, n_clusters = kmp.run_rvq(
-        feat_pca, n_tokens=2, n_clusters=32, max_iter=200, n_init=16
+        feat_pca, n_tokens=2, n_clusters=16, max_iter=200, n_init=16
     )
     
     # Display results

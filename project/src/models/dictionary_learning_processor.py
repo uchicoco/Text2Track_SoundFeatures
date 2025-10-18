@@ -1,5 +1,12 @@
+from pathlib import Path
+import sys
 import numpy as np
 from sklearn.decomposition import DictionaryLearning, MiniBatchDictionaryLearning, sparse_encode
+
+# Add project root to sys.path for standalone execution
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 class DictionaryLearningProcessor:
     def __init__(self, n_nonzero_coefs=2, n_dict_components=128, max_iter=100, batch_size=256):
@@ -187,7 +194,7 @@ def main():
     dictionary, codes, n_nonzero_coefs, n_dict_components = dlp.run_sparse_coding_minibatch(
         feat_pca, 
         n_nonzero_coefs=2, 
-        n_dict_components=32, 
+        n_dict_components=16, 
         max_iter=200
     )
 
