@@ -154,12 +154,14 @@ class T5Processor:
         tokenizer = T5Tokenizer.from_pretrained(self.model_name)
         model = T5ForConditionalGeneration.from_pretrained(self.model_name)
 
-        # Add special tokens for semantic IDs (<000> to <255>)
-        special_tokens = [f"<{i:03d}>" for i in range(256)]
-        num_added = tokenizer.add_special_tokens({"additional_special_tokens": special_tokens})
+        # Add tokens for semantic IDs (<000> to <255>)
+        new_tokens = [f"<{i:03d}>" for i in range(256)]
+        num_added = tokenizer.add_tokens(new_tokens)
         if num_added > 0:
             model.resize_token_embeddings(len(tokenizer))
-            print(f"Added {num_added} special tokens to vocabulary")
+            print(f"Added {num_added} tokens to vocabulary")
+        
+        tokenizer.add_prefix_space = False
 
         # Create datasets
         if train_df is not None:
@@ -300,8 +302,9 @@ class T5Processor:
 
             # Check if the correct target is in the generated candidates
             for i in range(len(true_targets)):
-                generated_targets = [tokenizer.decode(outputs[j], skip_special_tokens=True) 
-                                     for j in range(i*10, (i+1)*10)]
+                # Decode and remove spaces
+                generated_targets = [tokenizer.decode(outputs[j], skip_special_tokens=True).replace(" ", "")
+                                     for j in range(i * 10, (i + 1) * 10)]
 
                 if true_targets[i] in generated_targets:
                     hits += 1

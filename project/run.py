@@ -53,10 +53,10 @@ def main():
         tags_merged,
         use_mel_alt=False,
         use_energy_alt=False,
-        add_valley=False,
-        add_timbre_dist=False,
-        add_tonality=False,
-        add_rhythm_struct=False
+        add_valley=True,
+        add_timbre_dist=True,
+        add_tonality=True,
+        add_rhythm_struct=True
     )
 
     df_two = fe.filter_min2tags(df)
@@ -80,7 +80,7 @@ def main():
     # feat_pca, cum_var, expl_var, pca = pp.run_pca_components(feat_matrix, n_components=32)
     
     # Option 2: Explained variance ratio (recommended)
-    feat_pca, cum_var, expl_var, pca = pp.run_pca_ratio(feat_matrix, r_explained_var=0.95)
+    feat_pca, cum_var, expl_var, pca = pp.run_pca_ratio(feat_matrix, r_explained_var=0.80)
 
     pp.save_feat_pca(feat_pca, expl_var)
     print("✓ PCA completed and saved")
@@ -100,13 +100,13 @@ def main():
     # Choose semantic ID generation method:
     
     # === Method 1: K-means with manual configuration ===
-    semantic_ids = sig.assign_sem_ids_kmean_manual(
-        feat_pca,
-        n_tokens=2,
-        n_clusters=32,
-        max_iter=200,
-        n_init=16
-    )
+    # semantic_ids = sig.assign_sem_ids_kmean_manual(
+    #     feat_pca,
+    #     n_tokens=2,
+    #     n_clusters=32,
+    #     max_iter=200,
+    #     n_init=16
+    # )
 
     # === Method 2: K-means with grid search (recommended for first run) ===
     # semantic_ids = sig.search_best_kmean(
@@ -119,13 +119,13 @@ def main():
     # )
 
     # === Method 3: Dictionary Learning with manual configuration ===
-    # semantic_ids = sig.assign_sem_ids_dl_manual(
-    #     feat_pca,
-    #     n_nonzero_coefs=2,
-    #     n_dict_components=32,
-    #     max_iter=200,
-    #     batch_size=256
-    # )
+    semantic_ids = sig.assign_sem_ids_dl_manual(
+        feat_pca,
+        n_nonzero_coefs=2,
+        n_dict_components=16,
+        max_iter=200,
+        batch_size=256
+    )
 
     # === Method 4: Dictionary Learning with grid search ===
     # semantic_ids = sig.search_best_dl(
