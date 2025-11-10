@@ -226,6 +226,35 @@ class SemanticIDGenerator:
         print(f"Saved manual DL config to {data_dir}")
         return semantic_ids
     
+    def assign_sem_ids_dl_manual_nomood(self, feat_pca, n_nonzero_coefs=None, n_dict_components=None, max_iter=None, batch_size=None):
+        """Save semantic IDs with manually specified config"""
+        if n_nonzero_coefs is None: n_nonzero_coefs = self.dlp.n_nonzero_coefs
+        if n_dict_components is None: n_dict_components = self.dlp.n_dict_components
+        if max_iter is None: max_iter = self.dlp.max_iter
+        if batch_size is None: batch_size = self.dlp.batch_size
+        
+        print(f"Generating semantic IDs with manual DL config: C={n_nonzero_coefs}, D={n_dict_components}, batch_size={batch_size}")
+
+        # Generate semantic IDs
+        semantic_ids, dictionary, codes = self.assign_sem_ids_dl(
+            feat_pca, n_nonzero_coefs, n_dict_components, max_iter, batch_size
+        )
+
+        # Evaluate quality
+        vc = pd.Series(semantic_ids).value_counts()
+        print(f"Manual DL config results: Unique IDs: {vc.size}, Mean per ID: {vc.mean():.2f}, Singleton %: {(vc == 1).mean():.1%}")
+
+        # Save config
+        data_dir = Path(self.dp.output_dir) / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        joblib.dump(dictionary, data_dir / "best_dl_dictionary_nomood.joblib")
+        np.save(data_dir / "best_dl_codes_nomood.npy", codes)
+        config = {'n_nonzero_coefs': n_nonzero_coefs, 'n_dict_components': n_dict_components}
+        joblib.dump(config, data_dir / "best_dl_config_nomood.joblib")
+        
+        print(f"Saved manual DL config to {data_dir}")
+        return semantic_ids
+    
     def assign_sem_ids_dl_load(self, feat_pca):
         """Load saved DL dictionary and apply to new data"""
 
@@ -457,6 +486,49 @@ class SemanticIDGenerator:
             p20 = self._neighbor_purity_at_k(X_emb, labels, 20)
             print(f"Purity@20 (micro/macro):    {p20['micro']:.3f} | {p20['macro']:.3f}")
 
+    def evaluate_id_quality_nomood(self):
+        """
+        Evaluate semantic ID uality using purity
+        """
+        print("Evaluating semantic ID purity")
+        
+        data_csv_path = Path(self.dp.output_dir) / "data/dataset_with_semantic_ids_nomood.csv"
+        features_pca_path = Path(self.dp.output_dir) / "data/features_pca_nomood.npy"
+        
+        try:
+            df_eval = pd.read_csv(data_csv_path)
+            X_emb = np.load(features_pca_path)
+            print(f"Loaded dataset from: {data_csv_path}")
+            print(f"Loaded PCA features from: {features_pca_path}")
+        except FileNotFoundError as e:
+            print(f"Error: Could not find required file. {e}")
+            print("Please run the semantic ID generation process first.")
+            return
+
+        tag_cols = ["genre", "instrument"]
+        df_eval[tag_cols] = df_eval[tag_cols].fillna("")
+        
+        original_rows = len(X_emb)
+        
+        if len(df_eval) != original_rows:
+            min_rows = min(len(X_emb), len(df_eval))
+            X_emb = X_emb[:min_rows]
+            df_eval = df_eval.iloc[:min_rows]
+
+        for tag_col in tag_cols:
+            if tag_col not in df_eval.columns:
+                continue
+            
+            labels = df_eval[tag_col].values
+            clusters = df_eval["semantic_id"].values
+
+            cp = self._cluster_purity(labels, clusters)
+            print(f"\n--- {tag_col.upper()} ---")
+            print(f"Cluster Purity (micro/macro): {cp['micro']:.3f} | {cp['macro']:.3f}")
+
+            p20 = self._neighbor_purity_at_k(X_emb, labels, 20)
+            print(f"Purity@20 (micro/macro):    {p20['micro']:.3f} | {p20['macro']:.3f}")
+
 def main():
     sig = SemanticIDGenerator()
     
@@ -502,5 +574,58 @@ def main():
 
     sig.evaluate_id_quality()
 
+def main_nomood():
+    sig = SemanticIDGenerator()
+    
+    # Load PCA features
+    pca_path = Path(sig.dp.output_dir) / "data/features_pca_nomood.npy"
+    feat_pca = np.load(pca_path)
+
+    # Load dataset
+    csv_path = Path(sig.dp.output_dir) / "data/features_2tags_nomood.csv"
+    df = pd.read_csv(csv_path)
+    
+    # # k-means
+    # # Grid search and get best semantic IDs
+    # print("===== K-means =====")
+    # ### We can change the parameters of grid search
+    # ### And we have to keep them
+    # best_semantic_ids = sig.search_best_kmean(feat_pca)
+    
+    # # Integrate with dataset
+    # df_final = sig.integrate_with_dataset(df, best_semantic_ids)
+
+    # # Save final result
+    # df_final.to_csv(Path(sig.dp.output_dir) / "data/dataset_with_semantic_ids.csv", index=False)
+    # print(f"\nSaved final dataset with semantic IDs")
+    # print(df_final.head())
+
+
+
+    # Dictionary learning
+    print("\n===== Dictionary Learning =====")
+    # best_semantic_ids = sig.search_best_dl(feat_pca)
+    semantic_ids = sig.assign_sem_ids_dl_manual_nomood(
+        feat_pca,
+        n_nonzero_coefs=2,
+        n_dict_components=16,
+        max_iter=200,
+        batch_size=256
+    )
+
+    # Integrate with dataset
+    df_final = sig.integrate_with_dataset(df, semantic_ids)
+
+    # Save final result
+    df_final.to_csv(Path(sig.dp.output_dir) / "data/dataset_with_semantic_ids_nomood.csv", index=False)
+    print(f"\nSaved final dataset with semantic IDs")
+    print(df_final.head())
+
+    # Print statistics of semantic IDs
+    sig.print_stats(semantic_ids)
+
+    sig.evaluate_id_quality_nomood()
+
 if __name__ == "__main__":
-    main()
+    # main()
+    main_nomood()

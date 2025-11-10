@@ -89,6 +89,13 @@ class PCAProcessor:
         np.save(data_dir / "features_pca.npy", feat_pca)
         pd.Series(expl_var).to_csv(data_dir / "pca_explained_variance_ratio.csv", index=False)
         return None
+
+    def save_feat_pca_nomood(self, feat_pca, expl_var):
+        data_dir = Path(self.dp.output_dir) / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        np.save(data_dir / "features_pca_nomood.npy", feat_pca)
+        pd.Series(expl_var).to_csv(data_dir / "pca_explained_variance_ratio_nomood.csv", index=False)
+        return None
     
     def plot_pca_with_tags(self, feat_pca, df, save_html=True, 
                           sample_size=1000, figsize=(12, 8), n_tags=5):
@@ -104,6 +111,27 @@ class PCAProcessor:
         """
         # Create 3D plots
         for tag_column in ['genre', 'mood', 'instrument']:
+            if tag_column not in df.columns:
+                continue
+                
+            self._create_single_tag_plot(feat_pca, df, tag_column, save_html, sample_size, n_tags)
+
+        return None
+    
+    def plot_pca_with_tags_nomood(self, feat_pca, df, save_html=True, 
+                          sample_size=1000, figsize=(12, 8), n_tags=5):
+        """
+        Plot PCA results with color-coded tags using interactive plotly visualization
+        Creates 3D plots for genre and instrument
+        
+        Args: feat_pca (np.ndarray): PCA-transformed feature matrix
+               df (pd.DataFrame): original dataframe with tag information
+               save_html (bool): whether to save interactive plot as HTML
+               sample_size (int): number of samples to plot (for performance)
+               figsize (tuple): figure size for static plots
+        """
+        # Create 3D plots
+        for tag_column in ['genre', 'instrument']:
             if tag_column not in df.columns:
                 continue
                 
@@ -208,6 +236,39 @@ class PCAProcessor:
         plt.show()
         print(f"Variance plot saved: {output_path}")
 
+    def plot_explained_variance_nomood(self, expl_var, cum_var):
+        """
+        Plot explained variance ratio and cumulative variance
+        """
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Individual explained variance
+        ax1.bar(range(1, len(expl_var) + 1), expl_var)
+        ax1.set_xlabel('Principal Component')
+        ax1.set_ylabel('Explained Variance Ratio')
+        ax1.set_title('Explained Variance by Component')
+        ax1.grid(True, alpha=0.3)
+
+        # Cumulative explained variance
+        ax2.plot(range(1, len(cum_var) + 1), cum_var, 'bo-')
+        ax2.axhline(y=0.95, color='r', linestyle='--', label='95%')
+        ax2.axhline(y=0.90, color='orange', linestyle='--', label='90%')
+        ax2.set_xlabel('Number of Components')
+        ax2.set_ylabel('Cumulative Explained Variance')
+        ax2.set_title('Cumulative Explained Variance')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+
+        # Save variance plot
+        figures_dir = Path(self.dp.output_dir) / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
+        output_path = figures_dir / "pca_explained_variance_nomood.png"
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.show()
+        print(f"Variance plot saved: {output_path}")
+
 def main():
     from src.data.feature_extractor import FeatureExtractor
 
@@ -240,5 +301,37 @@ def main():
     pp.plot_explained_variance(expl_var, cum_var)
     pp.save_feat_pca(feat_pca_r, expl_var)
 
+def main_nomood():
+    from src.data.feature_extractor_nomood import FeatureExtractorNoMood
+
+    fe = FeatureExtractorNoMood()
+    dp = DatasetProcessor()
+
+    csv_path = Path(dp.output_dir) / "data/features_2tags_nomood.csv"
+    if csv_path.exists():
+        print("csv found")
+        df_two = pd.read_csv(csv_path)
+    else:
+        print("csv not found, building from tsv")
+        genre_df = dp.load_tag_tsv("autotagging_genre.tsv", "genre")
+        inst_df  = dp.load_tag_tsv("autotagging_instrument.tsv", "instrument")
+        tags_merged = (genre_df
+                    .merge(inst_df, on=["track_id", "path"], how="outer"))
+        tags_merged[["genre", "instrument"]] = tags_merged[["genre", "instrument"]].fillna("")
+
+        df = fe.build_features_dataframe(tags_merged)
+        df_two = fe.filter_min2tags(df)
+
+    pp = PCAProcessor()
+    feat_matrix = pp.build_feature_matrix(df_two)
+    # feat_pca_n, cum_var, expl_var, pca = pp.run_pca_components(feat_matrix)
+    feat_pca_r, cum_var, expl_var, pca = pp.run_pca_ratio(feat_matrix, r_explained_var=0.99999)
+
+
+    pp.plot_pca_with_tags_nomood(feat_pca_r, df_two)
+    pp.plot_explained_variance_nomood(expl_var, cum_var)
+    pp.save_feat_pca_nomood(feat_pca_r, expl_var)
+
 if __name__ == "__main__":
-    main()
+    main_nomood()
+    # main()

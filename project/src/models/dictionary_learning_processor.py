@@ -228,5 +228,85 @@ def main():
     for i in range(min(10, len(semantic_ids))):
         print(f"  {semantic_ids[i]}")
 
+def main_nomood():
+    from pathlib import Path
+    import pandas as pd
+
+    from src.data.dataset_processor import DatasetProcessor
+    from src.models.pca_processor import PCAProcessor
+    from src.data.feature_extractor_nomood import FeatureExtractorNoMood
+
+    dp = DatasetProcessor()
+
+    # Load PCA features if available
+    pca_path = Path(dp.output_dir) / "data/features_pca_nomood.npy"
+    if pca_path.exists():
+        print("Loading PCA features from file")
+        feat_pca = np.load(pca_path)
+    else:
+        print("PCA features not found, generating from scratch")
+
+        # Load dataset
+        csv_path = Path(dp.output_dir) / "data/features_2tags_nomood.csv"
+        if csv_path.exists():
+            df_two = pd.read_csv(csv_path)
+        else:
+            # Build dataset from scratch
+            fe = FeatureExtractorNoMood()
+            genre_df = dp.load_tag_tsv("autotagging_genre.tsv", "genre")
+            inst_df = dp.load_tag_tsv("autotagging_instrument.tsv", "instrument")
+            tags_merged = (genre_df
+                        .merge(inst_df, on=["track_id", "path"], how="outer"))
+            tags_merged[["genre", "instrument"]] = tags_merged[["genre", "instrument"]].fillna("")
+
+            df = fe.build_features_dataframe(tags_merged)
+            df_two = fe.filter_min2tags(df)
+
+        # Run PCA
+        pp = PCAProcessor()
+        feat_matrix = pp.build_feature_matrix(df_two)
+        feat_pca, cum_var, expl_var, pca = pp.run_pca_ratio(feat_matrix)
+        pp.save_feat_pca_nomood(feat_pca, expl_var)
+
+    # Run dictionary learning
+    dlp = DictionaryLearningProcessor()
+    dictionary, codes, n_nonzero_coefs, n_dict_components = dlp.run_sparse_coding_minibatch(
+        feat_pca, 
+        n_nonzero_coefs=2, 
+        n_dict_components=12, 
+        max_iter=200
+    )
+
+    # Display results
+    print(f"\nSparse Coding Results:")
+    print(f"Feature matrix shape: {feat_pca.shape}")
+    print(f"Generated codes shape: {codes.shape}")
+    print(f"Learned dictionary shape: {dictionary.shape}")
+
+    # Check code distribution
+    vocab_size = 2 * n_dict_components
+    for i in range(n_nonzero_coefs):
+        unique_codes = np.unique(codes[:, i])
+        print(f"Token {i+1}: {len(unique_codes)} unique codes (total vocab size: {vocab_size})")
+    
+    # generate semantic IDs
+    semantic_ids = []
+    for row in codes:
+        semantic_id = "".join([f"<{int(c):03d}>" for c in row])
+        semantic_ids.append(semantic_id)
+
+    # Check semantic ID distribution
+    unique_semantic_ids = len(set(semantic_ids))
+    print(f"\nSemantic ID Statistics:")
+    print(f"Total tracks: {len(semantic_ids)}")
+    print(f"Unique semantic IDs: {unique_semantic_ids}")
+    print(f"ID diversity: {unique_semantic_ids / len(semantic_ids):.3f}")
+
+    # Show sample IDs
+    print(f"\nSample semantic IDs:")
+    for i in range(min(10, len(semantic_ids))):
+        print(f"  {semantic_ids[i]}")
+
 if __name__ == "__main__":
     main()
+    # main_nomood()
